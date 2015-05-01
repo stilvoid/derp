@@ -4,14 +4,14 @@
 Dockster
 """
 
-import json
+import os
 import subprocess
 import sys
 import yaml
 
 from docker import Client
 
-CONFIG_FILE = "config.yml"
+CONFIG_FILE = os.path.join(os.getenv("HOME"), ".derp.yml")
 
 def save_config(config):
     """
@@ -52,7 +52,7 @@ def graph(cli, config):
         for link in sorted(link_set[name]):
             print("    - {}".format(link[1:]))
 
-def command_from_alias(config, alias, params):
+def command_from_alias(config, alias, params, command):
     """
     Construct a docker command from the alias name
     """
@@ -63,9 +63,19 @@ def command_from_alias(config, alias, params):
     ] + config["aliases"][alias]["parameters"] + [
         "--name",
         alias,
-    ] + [
+    ] + params + [
         config["aliases"][alias]["image"]
-    ] + params
+    ] + (command or config["aliases"][alias]["command"])
+
+def run_command(command):
+    """
+    Run a command innit ;)
+    """
+
+    print "$ {}".format(" ".join(command))
+    print
+
+    subprocess.call(command)
 
 def alias(cli, config, params):
     """
@@ -76,7 +86,7 @@ def alias(cli, config, params):
         for alias in config["aliases"]:
             print "{} = {}".format(
                 alias,
-                " ".join(command_from_alias(config, alias, []))
+                " ".join(command_from_alias(config, alias, [], []))
             )
 
         return
@@ -90,13 +100,19 @@ def alias(cli, config, params):
 
         print "{} = {}".format(
             alias,
-            " ".join(command_from_alias(config, alias, []))
+            " ".join(command_from_alias(config, alias, [], []))
         )
 
         return
 
     if len(params) < 2:
         print_help()
+
+    try:
+        separator = params.index("--")
+        params, command = params[:separator], params[separator+1:]
+    except ValueError:
+        command = []
 
     alias, params, image_name = params[0], params[1:-1], params[-1]
 
@@ -110,7 +126,8 @@ def alias(cli, config, params):
 
     config["aliases"][alias] = {
         "image": image_name,
-        "parameters": params
+        "parameters": params,
+        "command": command,
     }
 
     save_config(config)
@@ -125,13 +142,36 @@ def up(cli, config, params):
     if len(params) == 0:
         print_help()
 
+    try:
+        separator = params.index("--")
+        params, command = params[:separator], params[separator+1:]
+    except ValueError:
+        command = []
+
     alias, params = params[0], params[1:]
 
     if alias not in config["aliases"]:
         print("No such alias: {}".format(alias))
         sys.exit(1)
 
-    subprocess.call(command_from_alias(config, alias, params))
+    command = command_from_alias(config, alias, params, command)
+
+    # Check if there's an existing container
+    for container in cli.containers(all=True):
+        info = cli.inspect_container(container["Id"])
+
+        if info["Name"] == "/{}".format(alias):
+            if info["State"]["Paused"]:
+                print("{} is paused; unpausing...".format(alias))
+                command = ["docker", "unpause", alias]
+            elif info["State"]["Running"] or info["State"]["Restarting"]:
+                print("{} is already running".format(alias))
+                return
+            else:
+                print("{} is stopped; attempting to start it...".format(alias))
+                command = ["docker", "start", alias]
+
+    run_command(command)
 
 def down(cli, config, params):
     """
@@ -147,7 +187,7 @@ def down(cli, config, params):
         print("No such alias: {}".format(alias))
         sys.exit(1)
 
-    subprocess.call(["docker", "stop", alias])
+    run_command(["docker", "stop", alias])
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:

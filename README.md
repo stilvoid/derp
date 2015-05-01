@@ -10,16 +10,31 @@ Derp is a command line helper tool for Docker to take away some of the muscle st
 
 ### Commands
 
-* `alias <alias> [<arguments>] <image>`
+* `alias <alias>[<run arguments>] <image> [-- <command>]`
 
     Set default arguments for a given image.
     The arguments are the same as those given to `docker run`.
     Any `--name` argument will be overriden by the provided alias.
 
-* `up <alias>`
+    Examples:
+
+        derp alias db:mysql -d -e MYSQL_ROOT_PASSWORD=root
+        derp alias shell:ubuntu -ti -- /bin/bash
+
+* `up [<run arguments>] <alias> [-- <command>]`
 
     Start a docker container as per configuration
     previously given to the alias command.
+    If there is a stopped container named `<alias>`,
+    derp will attempt to start it.
+
+    Any run arguments will be *appended* to any set on the alias.
+    If a command is provided, it will *replace* any set on the alias.
+
+    Examples:
+
+        derp up db
+        derp up -d shell -- tail -f /var/log/dmesg
 
 * `down <alias>`
 
